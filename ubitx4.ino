@@ -78,6 +78,7 @@
 #define PTT   (A3)
 #define ANALOG_KEYER (A6)
 #define ANALOG_SPARE (A7)
+#define TRMAN (A7)
 
 /** 
  * The Raduino board is the size of a standard 16x2 LCD panel. It has three connectors:
@@ -108,8 +109,16 @@ LiquidCrystal lcd(8,9,10,11,12,13);
  * the serial port as we can easily run out of buffer space. This is done in the serial_in_count variable.
  */
 char c[30], b[30];      
-char printBuff[2][31];  //mirrors what is showing on the two lines of the display
-int count = 0;          //to generally count ticks, loops, etc
+char printBuff[2][31];    //mirrors what is showing on the two lines of the display
+int  count = 0;           //to generally count ticks, loops, etc
+
+//N6MNE_TRMAN
+uint32_t msTimer_1000[2]; //hold two long values to evaluate elapsed time
+uint32_t msTimer_100[2];
+uint32_t msTimer_10[2];   
+uint16_t trman_adc;       //hold on to the trman_adc reading
+uint8_t  trman;           //flag used to signal that manual transmit is requested
+uint8_t  trman_cntr;       //used to debounce the trman signal
 
 /** 
  *  The second set of 16 pins on the Raduino's bottom connector are have the three clock outputs and the digital lines to control the rig.
@@ -360,8 +369,13 @@ void startTx(byte txMode){
 }
 
 void stopTx(){
-  inTx = 0;
 
+  //only exit if the trman is clear
+  if(trman==1){
+    return;
+  }
+  
+  inTx = 0;
   digitalWrite(TX_RX, 0);           //turn off the tx
   si5351bx_setfreq(0, usbCarrier);  //set back the cardrier oscillator anyway, cw tx switches it off
 
@@ -626,6 +640,90 @@ void initPorts(){
   digitalWrite(CW_KEY, 0);
 }
 
+//~~~~~~~~~~~~~N6MNE_TRMAN Begin~~~~~~~~~~~~~~~//
+void doTRMan(void){
+  trman_adc = analogRead(TRMAN);
+
+  //debounce it.
+  //had issue while moving the tuning knob
+  //probably too week a pullup
+  if(trman_adc < 50){
+    if(trman_cntr < 0xFF){
+      trman_cntr++;
+    }
+  }
+  else
+  {
+    trman_cntr = 0;
+  }
+  
+  //Serial.print("trman_adc:");
+  //Serial.println(trman_adc);
+  //check to see if we are in RX
+  if(!inTx){
+    //check the trman_adc reading
+    if(trman_cntr > 5 && !trman){
+      //ask for TX mode CW
+      trman = 1;
+      startTx(TX_CW);
+      //Serial.println("TRMAN:ON");
+      cwTimeout = millis() + cwDelayTime * 10;
+      updateDisplay();
+    }
+  }
+  else{
+    //we are in tx mod
+    if(trman_adc > 500){
+      trman = 0;//clear the trman flag
+      stopTx();
+      //Serial.println("TRMAN:OFF");
+    }
+  }
+}
+
+//1000ms task
+void task1000ms(void){
+  //Serial.println("1000ms");
+  
+}
+
+//100ms Task
+void task100ms(void){
+  //Serial.println("100ms");
+  //doTRMan();
+}
+
+//10ms Task
+void task10ms(void){
+  //Serial.println("10ms");
+  doTRMan();
+}
+
+void doTimer(void){
+  msTimer_1000[0] = millis();
+  msTimer_100[0] = millis();
+  msTimer_10[0] = millis();
+
+  //call the 1s task
+  if(msTimer_1000[0] > msTimer_1000[1]){
+    msTimer_1000[1] = msTimer_1000[0] + 1000L; // reset the timer
+    task1000ms(); //call the task
+  }
+
+  if(msTimer_100[0] > msTimer_100[1]){
+    msTimer_100[1] = msTimer_100[0] + 100L; // reset the timer
+    task100ms(); //call the task
+  }
+
+   if(msTimer_10[0] > msTimer_10[1]){
+    msTimer_10[1] = msTimer_10[0] + 10L; // reset the timer
+    task10ms(); //call the task
+  }
+}
+
+//~~~~~~~~~~~~~N6MNE_TRMAN End~~~~~~~~~~~~~~~//
+ 
+ 
 void setup()
 {
   Serial.begin(38400);
@@ -634,7 +732,9 @@ void setup()
 
   //we print this line so this shows up even if the raduino 
   //crashes later in the code
-  printLine2("uBITX v4.3"); 
+  printLine2("4.3 N6MNE_TRMAN");
+  //Serial.println("4.3 N6MNE_TRMAN\n");
+   
   //active_delay(500);
 
 //  initMeter(); //not used in this build
@@ -648,6 +748,19 @@ void setup()
 
   if (btnDown())
     factory_alignment();
+
+//~~~~~~~~~~~~~~~N6MNE_TRMAN begin~~~~~~~~~~~~~//
+  //initialize the timers
+  msTimer_1000[0] = millis();
+  msTimer_1000[1] = msTimer_1000[0] + 1000L;
+  msTimer_100[0]  = millis();
+  msTimer_100[1]  = msTimer_100[0] + 100L;
+  msTimer_10[0]   = millis();
+  msTimer_10[1]   = msTimer_10[0] + 10L;
+  pinMode(TRMAN,INPUT_PULLUP);
+  trman=0;//set trman to 0
+  trman_cntr = 0;
+//~~~~~~~~~~~~~~~N6MNE_TRMAN End~~~~~~~~~~~~~//
 }
 
 
@@ -673,4 +786,6 @@ void loop(){
   
   //we check CAT after the encoder as it might put the radio into TX
   checkCAT();
+  //do Timer
+  doTimer();
 }
