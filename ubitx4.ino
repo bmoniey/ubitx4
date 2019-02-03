@@ -647,7 +647,7 @@ void doTRMan(void){
   //debounce it.
   //had issue while moving the tuning knob
   //probably too week a pullup
-  if(trman_adc < 50){
+  if(trman_adc < 10){
     if(trman_cntr < 0xFF){
       trman_cntr++;
     }
@@ -666,25 +666,35 @@ void doTRMan(void){
       //ask for TX mode CW
       trman = 1;
       startTx(TX_CW);
-      //Serial.println("TRMAN:ON");
+      //Serial.print("TRMAN:ON[");
+      //Serial.print(trman_adc);
+      //Serial.println("]");
       cwTimeout = millis() + cwDelayTime * 10;
       updateDisplay();
     }
   }
   else{
-    //we are in tx mod
-    if(trman_adc > 500){
+    //we are in tx
+    if(trman_cntr == 0 && trman){ //only do this if we are in manual transmit mode
       trman = 0;//clear the trman flag
       stopTx();
-      //Serial.println("TRMAN:OFF");
+      cwTimeout=0;
+      //Serial.print("TRMAN:OFF[");
+      //Serial.print(trman_adc);
+      //Serial.println("]");
     }
+  }
+  
+  //if we are in transmit
+  // keep moving the timeout up
+  if(trman){
+    cwTimeout = millis() + cwDelayTime * 10;
   }
 }
 
 //1000ms task
 void task1000ms(void){
-  //Serial.println("1000ms");
-  
+  //Serial.print("trman_adc:");
 }
 
 //100ms Task
